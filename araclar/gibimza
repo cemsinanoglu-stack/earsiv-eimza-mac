@@ -1,0 +1,299 @@
+#!/bin/sh
+# gibimza — GİB e-Arşiv imzalama aracı yardımcı komutu (simge, kullanıcı ve yapay zekâ asistanları için)
+# Kurulum: kur.sh bu dosyayı ~/Library/GIBImza/gibimza olarak koyar.
+#   gibimza ac              aracı başlat, sürücü yolunu panoya kopyala, e-Arşiv'i aç (masaüstü simgesi bunu çalıştırır)
+#   gibimza teshis [--json] her şeyi kontrol et; her sorun için sebep ve çözüm komutu yaz (kendi kendine muayene)
+#   gibimza durum [--json]  kısa durum: araç / Java / sürücü / kart
+#   gibimza baslat | durdur aracı başlat / durdur
+#   gibimza localhost       yerel araç sertifikası onay adımını göster (ilk kurulumda ya da sertifika yenilenince)
+#   gibimza surucu-sec      kartınızı gören sürücüyü bulup ayarla (PIN sormaz)
+#   gibimza yol             portala yazılacak sürücü yolunu yaz
+#   gibimza hazirla-js      e-Arşiv giriş sayfasını hazırlayan JavaScript'i yaz (yapay zekâ asistanları için)
+#   gibimza guncelle        GİB aracını GİB'den tazele (imza doğrulamalı) ve yeniden başlat
+#   gibimza kok-kabul       GİB yeni bir sertifika kuruluşuna geçtiyse incele; kabul yalnız Terminal'de "evet" yazarak
+#   gibimza onar            kurulumu depodan baştan tazele (ayarlar korunur)
+#   gibimza kaldir          her şeyi kaldır
+#   gibimza surum           sürüm
+# Bu komut PIN sormaz, PIN girmez; portalda hiçbir şeyi onaylamaz ya da imzalamaz.
+P="$(cd "$(dirname "$0")" && pwd)"
+ETIKET="$(cat "$P/etiket.txt" 2>/dev/null || echo tr.gibimza.araci)"
+KAYNAK="$(cat "$P/kaynak.txt" 2>/dev/null || echo https://raw.githubusercontent.com/cemsinanoglu-stack/earsiv-eimza-mac/main)"
+PLIST="$HOME/Library/LaunchAgents/$ETIKET.plist"
+PORTAL="https://earsivportal.efatura.gov.tr/"
+case "$P" in "$HOME/Library/GIBImza") GK="~/Library/GIBImza/gibimza";; *) GK="$P/gibimza";; esac   # mesajlarda tam yol
+AY=$(printf '\037')   # teşhis kayıt ayırıcı (metinlerde geçmez)
+[ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ] && MIM=arm64 || MIM=x86_64
+
+yol(){ cat "$P/surucu_yolu.txt" 2>/dev/null; }
+acik(){ lsof -nP -iTCP:8543 -sTCP:LISTEN >/dev/null 2>&1; }
+arac_java(){ PID=$(lsof -t -iTCP:8543 -sTCP:LISTEN 2>/dev/null | head -1); [ -n "$PID" ] && ps -o command= -p "$PID" | awk '{print $1}'; }
+java8_mi(){ J=$(arac_java); case "$J" in "$P/jre_arac/"*) return 0;; esac; [ -n "$J" ] && "$J" -version 2>&1 | grep -q '"1\.8\.'; }   # GİB yeni Java istediyse jre_arac doğrudur
+bizim_arac(){ J=$(arac_java); case "$J" in "$P"/*) return 0;; esac; return 1; }
+uygun(){ [ -n "$1" ] && [ -f "$1" ] && file -L "$1" 2>/dev/null | grep -q "$MIM"; }
+kart_takili(){ system_profiler SPSmartCardsDataType 2>/dev/null | grep -q 'ATR:'; }
+okuyucu_var(){ system_profiler SPSmartCardsDataType 2>/dev/null | grep -A2 'Readers:' | grep -q '#01'; }
+JJS_OPT="-J-XX:ErrorFile=${TMPDIR:-/tmp}/gibimza_hs_err_%p.log"   # üretici sürücüsü çökerse kullanıcının klasörüne günlük bırakılmaz
+kart_yokla(){ perl -e 'alarm 40; exec @ARGV' "$P/jre/bin/jjs" $JJS_OPT "$P/kart_dogrula.js" -- "$1" 2>/dev/null | head -1; }
+kart_goruyor(){ [ -x "$P/jre/bin/jjs" ] && uygun "$1" || return 0; S=$(kart_yokla "$1"); case "$S" in KART_VAR|KART_YOK) ;; *) sleep 1; S=$(kart_yokla "$1");; esac; printf '%s\n' "$S"; }   # sürücü ara sıra çöker: bir kez yeniden dener
+bildir(){ osascript -e "display notification \"$2\" with title \"GİB e-Arşiv\" subtitle \"$1\"" >/dev/null 2>&1 || true; }
+sor(){ osascript -e 'activate' -e "button returned of (display dialog \"$1\" with title \"GİB e-Arşiv\" buttons {\"Sonra\", \"$2\"} default button \"$2\" with icon note giving up after 600)" 2>/dev/null; }
+json_kac(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\t' '  '; }
+tarayici_ac(){ open -a "Google Chrome" "$1" 2>/dev/null || open "$1"; }
+chrome_var(){ [ -d "/Applications/Google Chrome.app" ] || [ -d "$HOME/Applications/Google Chrome.app" ]; }
+adaylar(){
+  printf '%s\n' /usr/local/lib/libakisp11.dylib "$P/surucu/tokenadmin.app/Contents/Frameworks/libaetpkss.dylib" \
+    /Applications/tokenadmin.app/Contents/Frameworks/libaetpkss.dylib /usr/local/lib/libaetpkss1.dylib \
+    /usr/local/lib/libeTPkcs11.dylib /usr/local/lib/pkcs11/libIDPrimePKCS11.dylib
+}
+
+baslat(){
+  if acik; then
+    if bizim_arac; then echo "Araç zaten açık (127.0.0.1:8543)."; return 0; fi
+    echo "8543'ü başka bir program tutuyor ($(arac_java)). O programı kapatıp yeniden deneyin."; echo "8543 başka bir programda" > "$P/son_durum.txt"; return 1
+  fi
+  if [ -f "$PLIST" ]; then
+    launchctl kickstart -k "gui/$(id -u)/$ETIKET" >/dev/null 2>&1 || launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1
+  else
+    nohup sh "$P/baslat.sh" >/dev/null 2>&1 &
+  fi
+  i=0; until acik || [ $i -ge 60 ]; do sleep 1; i=$((i+1)); done
+  if acik && bizim_arac; then echo "Araç başladı (127.0.0.1:8543)."; return 0; fi
+  echo "Araç başlamadı: $(cat "$P/son_durum.txt" 2>/dev/null). Ayrıntı: $GK teshis"; return 1
+}
+
+durum(){
+  B=hayir; if acik; then A=acik; bizim_arac && B=evet; if java8_mi; then J=evet; else J=hayir; fi; else A=kapali; J=bilinmiyor; fi
+  Y=$(yol); S=hayir; uygun "$Y" && S=evet
+  K=yok; kart_takili && K=takili
+  G=bilinmiyor; [ "$S" = evet ] && [ "$K" = takili ] && case "$(kart_goruyor "$Y")" in KART_VAR) G=evet;; KART_YOK) G=hayir;; esac
+  L=hayir; localhost_gecerli && L=evet
+  U=$(cat "$P/uyari.txt" 2>/dev/null | head -1)
+  if [ "${1:-}" = "--json" ]; then
+    printf '{"arac":"%s","bizim_arac":"%s","java8":"%s","surucu_yolu":"%s","surucu_uygun":"%s","kart":"%s","surucu_karti_goruyor":"%s","localhost_onaylandi":"%s","uyari":"%s","portal":"%s","komut":"%s"}\n' \
+      "$A" "$B" "$J" "$(json_kac "$Y")" "$S" "$K" "$G" "$L" "$(json_kac "$U")" "$PORTAL" "$(json_kac "$P/gibimza")"
+  else
+    echo "Araç (127.0.0.1:8543):     $A"
+    echo "8543 bizim araç mı:        $B"
+    echo "Araç Java 8 ile mi:        $J"
+    echo "Sürücü yolu:               $Y"
+    echo "Sürücü bu Mac'e uygun:     $S"
+    echo "Kart:                      $K"
+    echo "Sürücü kartı görüyor:      $G"
+    echo "localhost onayı verildi:   $L"
+    [ -n "$U" ] && echo "Uyarı:                     $U"
+    true
+  fi
+}
+
+# --- teşhis: her kontrol bir satır: durum AY ad AY ayrıntı AY çözüm (AY = \037) ---
+T_SATIR=""
+ekle(){ T_SATIR="$T_SATIR$1$AY$2$AY$3$AY$4
+"; }
+teshis(){
+  T_SATIR=""
+  [ -f "$P/.gibimza_kurulum" ] && ekle tamam kurulum "$P" "" || ekle hata kurulum "Kurulum klasörü eksik: $P" "Kurulumu yeniden çalıştırın: curl -fsSL $KAYNAK/kur.sh | sh"
+  if [ -x "$P/jre/bin/java" ] && "$P/jre/bin/java" -version 2>&1 | grep -q 'version'; then
+    JS=$("$P/jre/bin/java" -version 2>&1 | sed -n 's/.*version "\([^"]*\)".*/\1/p' | head -1); ekle tamam java "Kurulu Java: $JS" ""
+  else ekle hata java "Kurulu Java çalışmıyor" "$GK onar"; fi
+  JV="$P/jre/bin/java"; [ -x "$P/jre_arac/bin/java" ] && JV="$P/jre_arac/bin/java"   # aracın kullandığı Java
+  JA=$("$JV" -version 2>&1 | sed -n 's/.*version "\([^"]*\)".*/\1/p' | head -1)
+  GJ=$(cat "$P/java_gerek.txt" 2>/dev/null); JM=${JA#1.}; JM=${JM%%.*}
+  if [ -n "$GJ" ] && [ -n "$JM" ] && [ "$GJ" -gt "$JM" ] 2>/dev/null; then ekle hata java_gerek "GİB artık Java $GJ istiyor, kurulu Java $JM" "$GK onar"
+  else ekle tamam java_gerek "GİB'in istediği Java: ${GJ:-?}+ (kurulu ${JM:-?})" ""; fi
+  if curl -fsSI -m 15 https://ebelge.gib.gov.tr/EFaturaWebSocket/EFaturaWebSocket.jnlp >/dev/null 2>&1; then ekle tamam gib_sunucu "ebelge.gib.gov.tr erişilebilir" ""
+  else ekle uyari gib_sunucu "GİB sunucusuna ulaşılamadı (internet ya da GİB kesintisi). Eldeki doğrulanmış sürüm kullanılır." "İnternet bağlantınızı kontrol edin; sonra: $GK guncelle"; fi
+  if [ -x "$P/jre/bin/jjs" ] && [ -f "$P/EFaturaWebSocket.jnlp" ]; then
+    R=$( cd "$P" && for j in $(sed -n 's/.*<jar href="\([^"]*\)".*/\1/p' EFaturaWebSocket.jnlp); do printf '%s\n' "jars/$(basename "$j")"; done | xargs "$P/jre/bin/jjs" $JJS_OPT "$P/imza_dogrula.js" -- "$P/guvenilen_kokler.txt" 2>/dev/null )
+    H=$(printf '%s\n' "$R" | grep '^HATA' | head -1)
+    N=$(printf '%s\n' "$R" | grep -c '^OK')
+    if [ -z "$H" ] && [ "$N" -gt 0 ]; then ekle tamam gib_imza "$N dosya Gelir İdaresi Başkanlığı imzalı ve doğrulandı" ""
+    else ekle hata gib_imza "İmza doğrulanamadı: ${H#HATA }" "$GK guncelle; düzelmezse: $GK onar"; fi
+  else ekle hata gib_imza "GİB aracı dosyaları eksik" "$GK guncelle"; fi
+  if [ -d "$P/jars/aday" ] && ls "$P/jars/aday"/*.jar >/dev/null 2>&1; then
+    ekle uyari gib_yeni_kok "GİB'den gelen yeni sürüm tanınmayan bir sertifika kuruluşuyla imzalı; doğrulanmış önceki sürüm çalışıyor" "İnceleyip kabul etmek için: $GK kok-kabul"; fi
+  U=$(cat "$P/uyari.txt" 2>/dev/null | head -3 | tr '\n' ' ')
+  [ -n "$U" ] && ekle uyari son_guncelleme "$U" "$GK teshis; gerekirse $GK onar"
+  if acik; then
+    if bizim_arac; then
+      if java8_mi; then ekle tamam arac "Araç açık (127.0.0.1:8543), Java 8" ""; else ekle hata arac "Araç Java 8 dışında çalışıyor" "$GK durdur; $GK baslat"; fi
+    else ekle uyari arac "8543'ü başka bir program tutuyor: $(arac_java)" "O programı kapatın (ör. OpenWebStart ile açılmış eski imzalama aracı), sonra simgeye çift tıklayın ya da: $GK baslat"; fi
+  else ekle hata arac "Araç kapalı ($(cat "$P/son_durum.txt" 2>/dev/null))" "$GK baslat"; fi
+  if [ -f "$PLIST" ]; then ekle tamam ajan "Arka plan ajanı kurulu ($ETIKET)" ""; else ekle uyari ajan "Arka plan ajanı yok; araç simgeyle açılır" ""; fi
+  if [ "$(curl -sk -m 5 -o /dev/null -w '%{http_code}' https://127.0.0.1:8543/ 2>/dev/null)" != "000" ]; then
+    BIT=$(echo | LC_ALL=C openssl s_client -connect 127.0.0.1:8543 2>/dev/null | LC_ALL=C openssl x509 -noout -enddate 2>/dev/null | sed 's/notAfter=//')
+    BS=$(sert_bitis); KALAN=""; [ -n "$BS" ] && KALAN=$(( (BS - $(date +%s)) / 86400 ))
+    if [ -n "$KALAN" ] && [ "$KALAN" -lt 0 ]; then
+      if localhost_gecerli; then ekle tamam localhost_sertifika "Yerel araç sertifikasının süresi dolmuş ($BIT); bu süreye göre verilmiş onay güncel" ""
+      else ekle uyari localhost_sertifika "Yerel araç sertifikasının süresi dolmuş ($BIT); Chrome bir kez yeniden onay ister" "Simgeye çift tıklayın ya da: $GK localhost"; fi
+    else ekle tamam localhost_sertifika "Yerel araç sertifikası geçerli (bitiş: ${BIT:-?}${KALAN:+, $KALAN gün})" ""; fi
+  fi
+  localhost_gecerli && ekle tamam localhost_onay "localhost onayı güncel" "" || ekle uyari localhost_onay "localhost onayı yok ya da eskidi (Chrome yaklaşık bir haftada unutur)" "Simgeye çift tıklayın ya da: $GK localhost"
+  chrome_var && ekle tamam chrome "Google Chrome kurulu" "" || ekle uyari chrome "Google Chrome yok (portal Chrome'da sınandı)" "https://www.google.com/chrome/ adresinden kurun"
+  Y=$(yol)
+  if [ -z "$Y" ]; then ekle hata surucu "Kart sürücüsü ayarlı değil" "$GK surucu-sec; bulunamazsa: curl -fsSL $KAYNAK/kur.sh | GIBIMZA_KART=akis|safesign|etoken sh"
+  elif ! [ -f "$Y" ]; then ekle hata surucu "Sürücü dosyası yok: $Y" "$GK surucu-sec ya da $GK onar"
+  elif ! uygun "$Y"; then ekle hata surucu "Sürücü bu Mac'in işlemcisine ($MIM) uygun değil: $Y" "$GK surucu-sec"
+  else ekle tamam surucu "Sürücü: $Y" ""; fi
+  okuyucu_var && ekle tamam okuyucu "Kart okuyucu görünüyor" "" || ekle uyari okuyucu "Kart okuyucu görünmüyor" "Okuyucuyu takın; tanınmıyorsa okuyucu üreticisinin macOS sürücüsünü kurun"
+  if kart_takili; then
+    ekle tamam kart "Kart takılı" ""
+    if uygun "$Y"; then
+      case "$(kart_goruyor "$Y")" in
+        KART_VAR) ekle tamam surucu_kart "Sürücü kartı görüyor (PIN sorulmadan ölçüldü)" "";;
+        KART_YOK) ekle hata surucu_kart "Bu sürücü takılı kartı görmüyor; büyük ihtimalle başka bir sağlayıcının kartı" "$GK surucu-sec";;
+        *) ekle uyari surucu_kart "Sürücü yoklanamadı" "$GK surucu-sec";;
+      esac
+    fi
+  else ekle uyari kart "Kart takılı değil" "Kartı okuyucuya takın"; fi
+
+  HATA=$(printf '%s' "$T_SATIR" | grep -c "^hata$AY"); UYARI=$(printf '%s' "$T_SATIR" | grep -c "^uyari$AY")
+  SONUC=tamam; [ "$UYARI" -gt 0 ] && SONUC=uyari; [ "$HATA" -gt 0 ] && SONUC=hata
+  if [ "${1:-}" = "--json" ]; then
+    printf '{"sonuc":"%s","surum":"%s","kontroller":[' "$SONUC" "$(cat "$P/surum.txt" 2>/dev/null)"
+    printf '%s' "$T_SATIR" | awk -F'\037' 'BEGIN{n=0} NF>=2 { g=$0; gsub(/\\/,"\\\\",g); split(g,a,"\037"); for(i=1;i<=4;i++){gsub(/"/,"\\\"",a[i])} printf "%s{\"durum\":\"%s\",\"ad\":\"%s\",\"ayrinti\":\"%s\",\"cozum\":\"%s\"}", (n++?",":""), a[1],a[2],a[3],a[4] }'
+    printf ']}\n'
+  else
+    printf '%s' "$T_SATIR" | while IFS="$AY" read -r d a ay c; do
+      [ -z "$d" ] && continue
+      case "$d" in tamam) s="✅";; uyari) s="⚠️ ";; *) s="❌";; esac
+      printf '%s %-20s %s\n' "$s" "$a" "$ay"; [ -n "$c" ] && printf '   → %s\n' "$c"
+    done
+    echo; echo "SONUÇ: $SONUC ($HATA hata, $UYARI uyarı)"
+  fi
+  [ "$SONUC" != hata ]
+}
+
+surucu_sec(){
+  BUL=""
+  kart_takili || { echo "Kart takılı değil; kartı takıp yeniden deneyin."; return 1; }
+  for d in $(yol) $(adaylar); do
+    uygun "$d" || continue
+    if [ "$(kart_goruyor "$d")" = KART_VAR ]; then BUL="$d"; break; fi
+  done 2>/dev/null
+  if [ -n "$BUL" ]; then printf '%s\n' "$BUL" > "$P/surucu_yolu.txt"; printf '%s' "$BUL" | pbcopy 2>/dev/null; echo "Kartınızı gören sürücü: $BUL (panoya kopyalandı)"; return 0; fi
+  echo "Kartınızı gören bir sürücü bulunamadı. Sağlayıcınızın sürücüsünü kurun:"
+  echo "  curl -fsSL $KAYNAK/kur.sh | GIBIMZA_KART=akis sh    (akis | safesign | etoken)"
+  return 1
+}
+
+kok_kabul(){
+  ls "$P/jars/aday"/*.jar >/dev/null 2>&1 || { echo "İncelenecek yeni GİB sürümü yok."; return 0; }
+  R=$("$P/jre/bin/jjs" $JJS_OPT "$P/imza_dogrula.js" -- "$P/guvenilen_kokler.txt" "$P/jars/aday"/*.jar 2>/dev/null)
+  if printf '%s\n' "$R" | grep '^HATA' | grep -v 'KOK_BILINMIYOR' | grep -q .; then
+    echo "Yeni sürümde kök dışında da sorun var; kabul edilmez:"; printf '%s\n' "$R" | grep '^HATA' | grep -v KOK_BILINMIYOR | head -3; return 1; fi
+  FP=$(printf '%s\n' "$R" | sed -n 's/.*KOK_BILINMIYOR \([0-9A-F]\{64\}\) .*/\1/p' | sort -u)
+  [ "$(printf '%s\n' "$FP" | grep -c .)" = 1 ] || { echo "Yeni sürüm birden çok farklı kökle imzalı; elle inceleme gerekir."; return 1; }
+  SAT=$(printf '%s\n' "$R" | grep KOK_BILINMIYOR | head -1)
+  case "$SAT" in *damga=evet*) ;; *) echo "Yeni sürüm zaman damgası taşımıyor; elle inceleme gerekir:"; echo "$SAT"; return 1;; esac
+  Z=$(printf '%s' "$SAT" | sed -n 's/.*zincir=\([0-9]*\).*/\1/p'); [ "${Z:-0}" -ge 3 ] || { echo "Zincir çok kısa (zincir=$Z); bir sertifika kuruluşuna bağlı görünmüyor. Kabul edilmez."; return 1; }
+  KAD=$(printf '%s' "$SAT" | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9A-F]{64}$/){print $(i+1); exit}}' | tr '_' ' ')
+  echo "GİB'in yeni sürümü şu sertifika kuruluşunun köküne bağlı:"
+  echo "  Kök: $KAD"
+  echo "  Parmak izi (SHA-256): $FP"
+  echo "  Sertifikada yazan kuruluş: Gelir İdaresi Başkanlığı (bu bilgiyi zinciri kuran kök kuruluş doğrular)"
+  echo "  Dosyalar ebelge.gib.gov.tr'den HTTPS ile indi; zaman damgalı; zincir PKIX'e göre geçerli."
+  echo "  Kabul etmeden önce kök adını ve parmak izini GİB'in duyurusuyla ya da kök kuruluşun (GlobalSign, DigiCert, Kamu SM…) kendi sayfasındaki parmak iziyle karşılaştırın. Emin değilseniz kabul etmeyin."
+  # Güven kararı yalnız kullanıcının kendi Terminal'inde verilir: etkileşimsiz ortamda (betik, yapay zekâ ajanı) eklenmez.
+  if ! { [ -r /dev/tty ] && ( : </dev/tty ) 2>/dev/null && [ -t 1 ]; }; then
+    echo "Bu karar yalnız sizin Terminal'inizde verilebilir: Terminal'i açıp şunu çalıştırın: $GK kok-kabul"; echo "Eklenmedi."; return 1; fi
+  printf 'Bu kök güvenilen listeye eklensin mi? Eklemek için "evet" yazın: '; read -r C </dev/tty || C=h
+  case "$C" in evet|EVET|Evet) ;; *) echo "Eklenmedi."; return 1;; esac
+  printf '%s  # %s (kullanıcı kabulü %s; kaynak ebelge.gib.gov.tr)\n' "$FP" "$KAD" "$(date +%Y-%m-%d)" >> "$P/guvenilen_kokler.txt"
+  rm -rf "$P/jars/aday"
+  sh "$P/guncelle.sh" >/dev/null 2>&1 && { launchctl kickstart -k "gui/$(id -u)/$ETIKET" >/dev/null 2>&1 || true; echo "Kök eklendi, araç güncellendi."; } || { echo "Kök eklendi ama güncelleme tamamlanamadı: $GK teshis"; return 1; }
+}
+
+onar(){
+  echo "Kurulum depodan tazeleniyor: $KAYNAK"
+  ayar(){ sed -n -E "s/^$1=($2)\$/\\1/p" "$P/ayarlar.env" 2>/dev/null | head -1; }   # ayar dosyası çalıştırılmaz, yalnız bilinen değerler okunur
+  GIBIMZA_KART=$(ayar GIBIMZA_KART 'akis|safesign|etoken'); GIBIMZA_ARKAPLAN=$(ayar GIBIMZA_ARKAPLAN '[01]'); GIBIMZA_UYGULAMA=$(ayar GIBIMZA_UYGULAMA '[01]'); GIBIMZA_MASAUSTU=$(ayar GIBIMZA_MASAUSTU '[01]'); GIBIMZA_CLAUDE=$(ayar GIBIMZA_CLAUDE '[01]')
+  curl -fsSL -m 60 "$KAYNAK/kur.sh" -o "${TMPDIR:-/tmp}/gibimza_kur.$$" || { echo "Depoya ulaşılamadı."; return 1; }
+  env GIBIMZA_KART="${GIBIMZA_KART:-}" GIBIMZA_ARKAPLAN="${GIBIMZA_ARKAPLAN:-1}" GIBIMZA_UYGULAMA="${GIBIMZA_UYGULAMA:-1}" \
+      GIBIMZA_MASAUSTU="${GIBIMZA_MASAUSTU:-1}" GIBIMZA_CLAUDE="${GIBIMZA_CLAUDE:-1}" GIBIMZA_TARAYICI=0 GIBIMZA_ETIKET="$ETIKET" \
+      GIBIMZA_KAYNAK="$KAYNAK" GIBIMZA_DIZIN="$P" sh "${TMPDIR:-/tmp}/gibimza_kur.$$"
+  R=$?; rm -f "${TMPDIR:-/tmp}/gibimza_kur.$$"; return $R
+}
+
+# Chrome yerel araç sertifikası istisnasını yaklaşık 7 gün hatırlar; GİB sertifikayı yenileyince de unutur.
+# Onay, sertifika parmak izi + zamanla saklanır; 6 günü geçince ya da parmak izi değişince adım yeniden gösterilir.
+yerel_pi(){ echo | perl -e 'alarm 10; exec @ARGV' openssl s_client -connect 127.0.0.1:8543 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null | sed 's/.*=//'; }
+sert_bitis(){ B=$(echo | perl -e 'alarm 10; exec @ARGV' openssl s_client -connect 127.0.0.1:8543 2>/dev/null | LC_ALL=C openssl x509 -noout -enddate 2>/dev/null | sed 's/notAfter=//'); [ -n "$B" ] && LC_ALL=C date -j -f "%b %e %T %Y %Z" "$B" +%s 2>/dev/null; }
+localhost_gecerli(){
+  [ -f "$P/.localhost_onaylandi" ] || return 1
+  KPI=$(sed -n 1p "$P/.localhost_onaylandi"); KZ=$(sed -n 2p "$P/.localhost_onaylandi")
+  case "$KZ" in ''|*[!0-9]*) return 1;; esac
+  SIMDI=$(date +%s); [ $(( SIMDI - KZ )) -lt 518400 ] || return 1
+  KB=$(sed -n 3p "$P/.localhost_onaylandi")   # onay anındaki sertifika bitişi: süre o tarihten sonra dolduysa Chrome yeniden onay ister
+  case "$KB" in ''|*[!0-9]*) ;; *) [ "$SIMDI" -gt "$KB" ] && [ "$KZ" -lt "$KB" ] && return 1;; esac
+  SPI=$(yerel_pi); [ -z "$SPI" ] || [ "$SPI" = "$KPI" ]
+}
+localhost_adimi(){
+  tarayici_ac "https://localhost:8543"
+  sleep 1
+  C=$(sor "Açılan sayfada kırmızı uyarı görürseniz: 'Gelişmiş' › 'localhost sitesine ilerle' deyin. 'İmzalama aracına hoşgeldiniz' yazısını görünce 'Yaptım'a basın. (Chrome bu onayı yaklaşık bir hafta hatırlar; simge gerektiğinde yeniden sorar.)" "Yaptım")
+  if [ "$C" = "Yaptım" ]; then { yerel_pi; date +%s; sert_bitis; } > "$P/.localhost_onaylandi"; return 0; fi
+  return 1
+}
+
+ac(){
+  if ! baslat >/dev/null; then
+    bildir "Araç başlamadı" "$(cat "$P/son_durum.txt" 2>/dev/null) — Terminal: $GK teshis"; echo "Araç başlamadı: $(cat "$P/son_durum.txt" 2>/dev/null). Çözüm için: $GK teshis"; exit 1; fi
+  U=$(cat "$P/uyari.txt" 2>/dev/null | head -1); [ -n "$U" ] && bildir "Bilgi" "$U"
+  Y=$(yol)
+  if ! uygun "$Y"; then
+    bildir "Kart sürücüsü yok" "Terminal: $GK teshis"; echo "Kart sürücüsü ayarlı değil. Çözüm için: $GK teshis"; exit 1
+  fi
+  printf '%s' "$Y" | pbcopy
+  localhost_gecerli || localhost_adimi || true
+  tarayici_ac "$PORTAL"
+  kart_takili || bildir "Kart görünmüyor" "Kartınızı okuyucuya takın."
+  bildir "Sürücü yolu panoda" "İşlemci: Gelişmiş (Elle Giriş) → yola ⌘V → PIN → Giriş Yap"
+  echo "e-Arşiv açıldı. Akıllı kartınızın işlemcisi: Gelişmiş (Elle Giriş) → sürücü yoluna ⌘V → PIN → Giriş Yap."
+}
+
+hazirla_js(){
+  # Yol JS dizgesine güvenle gömülür (ters bölü ve tek tırnak kaçırılır).
+  Y=$(yol | sed "s/\\\\/\\\\\\\\/g; s/'/\\\\'/g")
+  cat <<EOF
+(function(){try{
+ var sonuc=function(o){var s=JSON.stringify(o);document.documentElement.setAttribute('data-gibimza',s);return s;};
+ var s=document.getElementById('islemci'), yol=document.getElementById('txtSurucuPath');
+ if(!s||!yol) return sonuc({hata:'GIRIS_SAYFASI_DEGIL_YA_DA_DEGISTI',ipucu:'Sayfada kart işlemcisi listesi ve sürücü yolu kutusu bulunamadı. Giriş sayfasında mısınız? Sayfa yapısı değiştiyse listeden Gelişmiş/Elle Giriş seçeneğini seçip yolu elle yazın.'});
+ var var_mi=false; for(var i=0;i<s.options.length;i++){ if(s.options[i].value=='gelismis') var_mi=true; }
+ if(!var_mi) return sonuc({hata:'GELISMIS_SECENEGI_YOK',secenekler:Array.prototype.map.call(s.options,function(o){return o.value+'='+o.text})});
+ s.value='gelismis';
+ try{\$('#islemci').material_select()}catch(e){}
+ try{kartSecimiDegisti()}catch(e){}
+ yol.value='$Y';
+ // Yol yazıldıktan sonra kutu gizlenir: görünür kalırsa Chrome onu kullanıcı adı alanı sanıp giriş formunu yanlış yorumluyor.
+ // Formun onchange işleyicisi kutuyu yeniden açmasın diye sarılır (değer korunur).
+ var gizle=function(){var a=document.getElementById('surucu-alani'); if(a) a.style.display='none';}; gizle();
+ if(typeof kartSecimiDegisti=='function' && !kartSecimiDegisti.__gib){var ks=kartSecimiDegisti; window.kartSecimiDegisti=function(){ks.apply(this,arguments); if(document.getElementById('islemci').value=='gelismis') gizle();}; window.kartSecimiDegisti.__gib=1;}
+ if(!window.__gibimzaKoruma && typeof wss!=='undefined'){ window.__gibimzaKoruma=1;
+  var yeni=function(){var w=new WebSocket((location.protocol=='http:'?'ws':'wss')+'://localhost:8543/');w.onmessage=wss.onmessage;w.onerror=wss.onerror;w.onclose=function(){};return w;};
+  ['kartaGirisYap','assosMetinImzala'].forEach(function(ad){var o=window[ad];if(typeof o!=='function')return;window[ad]=function(){var t=this,a=arguments;if(wss&&wss.readyState===1)return o.apply(t,a);var w=yeni();wss=w;w.onopen=function(){o.apply(t,a)};};});
+  setInterval(function(){if(!wss||wss.readyState===3){var w=yeni();w.onopen=function(){};wss=w;}},60000);
+ }
+ return sonuc({islemci:s.value,yol_yazildi:yol.value.length>0,arac_bagli:(typeof wss!=='undefined'&&wss.readyState===1),yuklendi:document.body.innerText.indexOf('başarı ile')>=0});
+}catch(e){return 'HATA '+e}})()
+EOF
+}
+
+case "${1:-ac}" in
+  ac) ac;;
+  teshis|kontrol) teshis "${2:-}";;
+  durum) durum "${2:-}";;
+  baslat) baslat;;
+  durdur) launchctl bootout "gui/$(id -u)/$ETIKET" >/dev/null 2>&1; PID=$(lsof -t -iTCP:8543 -sTCP:LISTEN 2>/dev/null | head -1); bizim_arac && kill "$PID" 2>/dev/null; sleep 2; acik && echo "8543 hâlâ açık (başka bir araç olabilir)." || echo "Araç durduruldu.";;
+  localhost) baslat >/dev/null || true; localhost_adimi && echo "Tamam." || echo "Onay verilmedi (bekleyen onay korunur); sonra yeniden: $GK localhost";;
+  surucu-sec) surucu_sec;;
+  yol) yol; echo;;
+  hazirla-js) hazirla_js;;
+  guncelle) sh "$P/guncelle.sh"; R=$?; { launchctl kickstart -k "gui/$(id -u)/$ETIKET" >/dev/null 2>&1 || true; }; [ $R = 0 ] && echo "Güncel ve doğrulanmış." || echo "Güncelleme tamamlanamadı: $GK teshis"; exit $R;;
+  kok-kabul) kok_kabul "${2:-}";;
+  onar) onar;;
+  kaldir) sh "$P/kaldir.sh";;
+  surum|--version) cat "$P/surum.txt" 2>/dev/null || echo bilinmiyor;;
+  -h|--help|yardim|help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//';;
+  *) echo "Bilinmeyen komut: $1  (yardım: $GK yardim)"; exit 2;;
+esac

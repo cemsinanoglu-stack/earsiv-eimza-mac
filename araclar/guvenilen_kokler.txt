@@ -1,0 +1,5 @@
+# GİB imzalama aracının jar imzaları için güvenilen kod imzalama kökleri (SHA-256 parmak izi).
+# Kural değişmez: imzalayan sertifikada mutlaka "O=Gelir İdaresi Başkanlığı" olmalı; bu liste yalnız zincirin kökünü belirler.
+# GİB başka bir kuruluşa geçerse araç eski doğrulanmış sürümle çalışmayı sürdürür ve "gibimza teshis" bunu söyler;
+# kullanıcı "gibimza kok-kabul" ile yeni kökü kendi listesine ekleyebilir (bkz. README).
+7B9D553E1C92CB6E8803E137F4F287D4363757F5D44B37D52F9FCA22FB97DF86  # GlobalSign Code Signing Root R45 (GİB, Ekim 2026; jar zincirinden ölçüldü)

@@ -1,0 +1,18 @@
+# earsiv-eimza-mac
+
+> GİB e-Arşiv Portal'a (earsivportal.efatura.gov.tr) Mac'te e-imza ile giriş. Tek komutla Java 8'i, GİB'in imzalama aracını (EFaturaWebSocket) ve kullanıcının sağlayıcısına göre kart sürücüsünü (AKİS / E-Tuğra SafeSign / E-Güven e-Token) resmî kaynaklardan indirip doğrular; masaüstü simgesi ve yapay zekâ asistanları için `gibimza` komutu kurar. Kendi kendini teşhis eder ve onarır. Gayriresmîdir; GİB tarafından geliştirilmemiştir.
+
+Yapay zekâ asistanıysan önce AGENTS.md'yi oku. Kırmızı çizgiler:
+- PIN'e dokunma.
+- "Giriş Yap"a kullanıcının "devam" sözü olmadan basma.
+- Fatura onayı, imza ve iptal yalnız kullanıcının açık sözüyle.
+
+## Belgeler
+- [AGENTS.md](AGENTS.md): her yapay zekâ için kurulum, teşhis ve onarım talimatı
+- [README.md](README.md): kullanıcı kılavuzu (kurulum, iki kullanım yolu, sorun giderme, güvenlik, sınama)
+- [ai/claude-skill/gib-earsiv/SKILL.md](ai/claude-skill/gib-earsiv/SKILL.md): kullanım ve giriş akışı (Claude becerisi; diğer asistanlar için de geçerli)
+
+## Komutlar
+- Kurulum: `curl -fsSL https://raw.githubusercontent.com/cemsinanoglu-stack/earsiv-eimza-mac/main/kur.sh | GIBIMZA_KART=akis|safesign|etoken sh`
+- Teşhis: `~/Library/GIBImza/gibimza teshis --json`
+- Onarım: `~/Library/GIBImza/gibimza onar`
