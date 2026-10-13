@@ -17,7 +17,7 @@
 # Bu komut PIN sormaz, PIN girmez; portalda hiçbir şeyi onaylamaz ya da imzalamaz.
 P="$(cd "$(dirname "$0")" && pwd)"
 ETIKET="$(cat "$P/etiket.txt" 2>/dev/null || echo tr.gibimza.araci)"
-KAYNAK="$(cat "$P/kaynak.txt" 2>/dev/null || echo https://raw.githubusercontent.com/cemsinanoglu-stack/earsiv-eimza-mac/main)"
+KAYNAK="$(cat "$P/kaynak.txt" 2>/dev/null || echo https://raw.githubusercontent.com/cemsinanoglu/earsiv-eimza-mac/main)"
 PLIST="$HOME/Library/LaunchAgents/$ETIKET.plist"
 PORTAL="https://earsivportal.efatura.gov.tr/"
 case "$P" in "$HOME/Library/GIBImza") GK="~/Library/GIBImza/gibimza";; *) GK="$P/gibimza";; esac   # mesajlarda tam yol

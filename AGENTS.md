@@ -14,7 +14,7 @@ Kullanıcıya sor: hangi e-imza? (AKİS kart · E-Tuğra JCOP/SafeSign kart · E
 
 Komut çalıştırabiliyorsan:
 ```sh
-curl -fsSL https://raw.githubusercontent.com/cemsinanoglu-stack/earsiv-eimza-mac/main/kur.sh | GIBIMZA_KART=akis sh
+curl -fsSL https://raw.githubusercontent.com/cemsinanoglu/earsiv-eimza-mac/main/kur.sh | GIBIMZA_KART=akis sh
 ```
 - `akis` yerine `safesign` ya da `etoken`. Bilmiyorsan değişkeni koyma: kart takılıysa betik tanır.
 - Senin kabuğunda etkileşimli terminal (tty) yoksa betik soru soramaz. Kart tanınmazsa "Kurulum TAMAMLANMADI" der (çıkış 3); o zaman `GIBIMZA_KART` ile yeniden çalıştır.

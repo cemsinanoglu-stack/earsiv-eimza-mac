@@ -10,7 +10,7 @@ Kullanıcının kendi bilgisayarında, kullanıcı adına teknik hazırlığı y
 
 ## Araç ve kaynak
 - Yerel komut: `~/Library/GIBImza/gibimza` (her zaman tam yolla çağır).
-  - Kurulum [earsiv-eimza-mac](https://github.com/cemsinanoglu-stack/earsiv-eimza-mac) deposundandır. Komut yoksa kurulum için deponun `AGENTS.md` dosyasını izle.
+  - Kurulum [earsiv-eimza-mac](https://github.com/cemsinanoglu/earsiv-eimza-mac) deposundandır. Komut yoksa kurulum için deponun `AGENTS.md` dosyasını izle.
 - Komutlar:
   - `teshis --json`: `{"sonuc":"tamam|uyari|hata","kontroller":[{"durum","ad","ayrinti","cozum"}…]}`. Her sorunun çözüm komutunu verir.
   - `durum --json`: `{"arac":"acik|kapali","bizim_arac":"evet|hayir","java8":"evet|hayir|bilinmiyor","surucu_yolu","surucu_uygun","kart","surucu_karti_goruyor","localhost_onaylandi","uyari",…}`.

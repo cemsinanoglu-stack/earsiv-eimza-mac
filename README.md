@@ -38,7 +38,7 @@ Portala kullanıcı kodu ve şifreyle giriyorsanız bu araca ihtiyacınız yok. 
 3. Aşağıdaki satırı kopyalayıp Terminal'e yapıştırın ve **Enter**'a basın:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/cemsinanoglu-stack/earsiv-eimza-mac/main/kur.sh | sh
+curl -fsSL https://raw.githubusercontent.com/cemsinanoglu/earsiv-eimza-mac/main/kur.sh | sh
 ```
 
 Kurulum birkaç dakika sürer. Betik şunları yapar:
@@ -81,7 +81,7 @@ Kurulum sonunda **"== Tamam =="** yazmalı. **"Kurulum TAMAMLANMADI"** yazıyors
 ### 🤖 Kurulumu yapay zekânıza yaptırın
 Komut çalıştırabilen bir asistanınız varsa (Claude Code, Codex, Cursor, Gemini CLI vb.) ona şunu yazmanız yeter:
 
-> *"https://github.com/cemsinanoglu-stack/earsiv-eimza-mac deposundaki AGENTS.md talimatına göre GİB e-Arşiv imzalama aracını bu Mac'e kur ve sonra e-Arşiv'e girişte bana yardım et."*
+> *"https://github.com/cemsinanoglu/earsiv-eimza-mac deposundaki AGENTS.md talimatına göre GİB e-Arşiv imzalama aracını bu Mac'e kur ve sonra e-Arşiv'e girişte bana yardım et."*
 
 Asistan depoyu okur; sağlayıcınızı sorar, kurulumu çalıştırır ve sonucu teşhisle doğrular. Mac şifresi ve kurulum penceresi onayı yine sizdedir. Yalnız sohbet edebilen asistanlar (ör. LM Studio'daki yerel bir model) komutları size verir, siz Terminal'e yapıştırırsınız.
 

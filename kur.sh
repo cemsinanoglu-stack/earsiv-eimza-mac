@@ -1,6 +1,6 @@
 #!/bin/sh
 # GİB e-Arşiv imzalama aracı (EFaturaWebSocket) — macOS tek komut kurulum
-#   curl -fsSL https://raw.githubusercontent.com/cemsinanoglu-stack/earsiv-eimza-mac/main/kur.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/cemsinanoglu/earsiv-eimza-mac/main/kur.sh | sh
 # Betik sudo istemez. Yalnız AKİS/e-Token sürücüsü kurulurken macOS kendi penceresinde Mac şifrenizi sorar.
 # Kurulan yerler:
 #   ~/Library/GIBImza                               Java, GİB aracı, sürücü kopyası (SafeSign), gibimza komutu
@@ -25,7 +25,7 @@ SURUM="1.0.0"
 P="${GIBIMZA_DIZIN:-$HOME/Library/GIBImza}"
 ETIKET="${GIBIMZA_ETIKET:-tr.gibimza.araci}"
 PLIST="$HOME/Library/LaunchAgents/$ETIKET.plist"
-KAYNAK="${GIBIMZA_KAYNAK:-https://raw.githubusercontent.com/cemsinanoglu-stack/earsiv-eimza-mac/main}"
+KAYNAK="${GIBIMZA_KAYNAK:-https://raw.githubusercontent.com/cemsinanoglu/earsiv-eimza-mac/main}"
 JNLP_URL="https://ebelge.gib.gov.tr/EFaturaWebSocket/EFaturaWebSocket.jnlp"
 say(){ printf '%s\n' "$*"; }
 olmez(){ say "❌ $*"; say "   Yardım: ~/Library/GIBImza/gibimza teshis (kuruluysa) · README › Sorun giderme"; exit 1; }

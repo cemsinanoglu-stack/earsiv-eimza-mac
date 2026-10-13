@@ -13,6 +13,6 @@ Yapay zekâ asistanıysan önce AGENTS.md'yi oku. Kırmızı çizgiler:
 - [ai/claude-skill/gib-earsiv/SKILL.md](ai/claude-skill/gib-earsiv/SKILL.md): kullanım ve giriş akışı (Claude becerisi; diğer asistanlar için de geçerli)
 
 ## Komutlar
-- Kurulum: `curl -fsSL https://raw.githubusercontent.com/cemsinanoglu-stack/earsiv-eimza-mac/main/kur.sh | GIBIMZA_KART=akis|safesign|etoken sh`
+- Kurulum: `curl -fsSL https://raw.githubusercontent.com/cemsinanoglu/earsiv-eimza-mac/main/kur.sh | GIBIMZA_KART=akis|safesign|etoken sh`
 - Teşhis: `~/Library/GIBImza/gibimza teshis --json`
 - Onarım: `~/Library/GIBImza/gibimza onar`
